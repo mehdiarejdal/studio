@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -129,14 +130,14 @@ export default function MaterialWisePage() {
       const results = runTopsisCalculation({
         selectedMaterialsData,
         selectedCriteriaKeys,
-        allCriteriaDefinition: allCriteria,
+        allCriteriaDefinition: selectableCriteria, // Use selectableCriteria for consistency
         costs: costsParsed,
         weights: weightsParsed,
       });
       setTopsisResults(results);
       if (results.length > 0) {
-        const { initialMatrix, normalizedMatrix, weightedMatrix, idealSolution, antiIdealSolution, distanceToIdeal, distanceToAntiIdeal } = results[0];
-        setCalculationDetails({ initialMatrix, normalizedMatrix, weightedMatrix, idealSolution, antiIdealSolution, distanceToIdeal, distanceToAntiIdeal });
+        // Store the full first result for detailed breakdown
+        setCalculationDetails(results[0]);
       } else {
         setCalculationDetails(null);
       }
@@ -202,6 +203,73 @@ export default function MaterialWisePage() {
     }
   };
   
+  // Helper function to render a matrix as a table
+  const renderMatrixAsTable = (
+    matrix: number[][],
+    rowHeaders: string[], // Material names
+    colHeaders: string[], // Criteria labels
+    caption: string,
+    decimalPlaces: number = 2
+  ) => (
+    <div className="my-4">
+      <h4 className="font-semibold mb-2 text-sm">{caption}:</h4>
+      {matrix && matrix.length > 0 && matrix[0].length > 0 ? (
+        <Table className="text-xs border">
+          <TableHeader>
+            <TableRow>
+              <TableHead className="border">Matériau</TableHead>
+              {colHeaders.map(header => <TableHead key={header} className="text-right border">{header}</TableHead>)}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {matrix.map((row, rowIndex) => (
+              <TableRow key={rowHeaders[rowIndex] || `row-${rowIndex}`}>
+                <TableCell className="font-medium border">{rowHeaders[rowIndex] || `Matériau ${rowIndex + 1}`}</TableCell>
+                {row.map((cell, cellIndex) => (
+                  <TableCell key={`cell-${rowIndex}-${cellIndex}`} className="text-right border">
+                    {cell.toFixed(decimalPlaces)}
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      ) : <p className="text-xs text-muted-foreground">Données non disponibles.</p>}
+    </div>
+  );
+
+  // Helper function to render a vector (array of numbers) as a table
+  const renderVectorAsTable = (
+    vector: number[],
+    rowHeaders: string[], // Criteria labels or Material Names
+    caption: string,
+    valueHeader: string = "Valeur",
+    labelHeader: string = "Item",
+    decimalPlaces: number = 3
+  ) => (
+    <div className="my-4">
+      <h4 className="font-semibold mb-2 text-sm">{caption}:</h4>
+      {vector && vector.length > 0 ? (
+        <Table className="text-xs border">
+          <TableHeader>
+            <TableRow>
+              <TableHead className="border">{labelHeader}</TableHead>
+              <TableHead className="text-right border">{valueHeader}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {vector.map((value, index) => (
+              <TableRow key={rowHeaders[index] || `item-${index}`}>
+                <TableCell className="font-medium border">{rowHeaders[index] || `Item ${index + 1}`}</TableCell>
+                <TableCell className="text-right border">{value.toFixed(decimalPlaces)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      ) : <p className="text-xs text-muted-foreground">Données non disponibles.</p>}
+    </div>
+  );
+
   const renderStepContent = () => {
     switch (currentStep) {
       case 1: // Select Network Type
@@ -392,17 +460,18 @@ export default function MaterialWisePage() {
           </CardContent>
         );
       case 6: // Display Results
-        if (!topsisResults || topsisResults.length === 0) {
+        if (!topsisResults || topsisResults.length === 0 || !calculationDetails) {
           return (
             <CardContent className="text-center py-10">
               <AlertCircle className="mx-auto h-12 w-12 text-destructive mb-4" />
               <p className="text-xl font-semibold">Aucun résultat à afficher.</p>
-              <p className="text-muted-foreground">Quelque chose s'est mal passé lors du calcul.</p>
+              <p className="text-muted-foreground">Quelque chose s'est mal passé lors du calcul ou les données sont incomplètes.</p>
             </CardContent>
           );
         }
         const bestMaterial = topsisResults[0];
         const chartData = topsisResults.map(r => ({ name: r.name, score: parseFloat(r.score.toFixed(4)) })).sort((a,b) => b.score - a.score);
+        const criteriaLabels = selectedCriteriaKeys.map(key => selectableCriteria.find(c => c.key === key)?.label || key);
 
         return (
           <CardContent className="space-y-8 pt-6">
@@ -460,20 +529,13 @@ export default function MaterialWisePage() {
               <details className="space-y-2 bg-muted/50 p-4 rounded-md">
                 <summary className="cursor-pointer font-semibold text-primary hover:underline">Afficher les détails du calcul TOPSIS</summary>
                 <div className="mt-2 space-y-4 text-xs overflow-x-auto">
-                  <h4>Matrice Initiale:</h4>
-                  <pre className="p-2 bg-background rounded">{JSON.stringify(calculationDetails.initialMatrix.map(row => row.map(v => v.toFixed(2))), null, 2)}</pre>
-                  <h4>Matrice Normalisée:</h4>
-                  <pre className="p-2 bg-background rounded">{JSON.stringify(calculationDetails.normalizedMatrix.map(row => row.map(v => v.toFixed(3))), null, 2)}</pre>
-                  <h4>Matrice Pondérée:</h4>
-                  <pre className="p-2 bg-background rounded">{JSON.stringify(calculationDetails.weightedMatrix.map(row => row.map(v => v.toFixed(3))), null, 2)}</pre>
-                  <h4>Solution Idéale:</h4>
-                  <pre className="p-2 bg-background rounded">{JSON.stringify(calculationDetails.idealSolution.map(v => v.toFixed(3)), null, 2)}</pre>
-                  <h4>Solution Anti-Idéale:</h4>
-                  <pre className="p-2 bg-background rounded">{JSON.stringify(calculationDetails.antiIdealSolution.map(v => v.toFixed(3)), null, 2)}</pre>
-                  <h4>Distances à la Solution Idéale (D+):</h4>
-                  <pre className="p-2 bg-background rounded">{JSON.stringify(calculationDetails.distanceToIdeal.map(v => v.toFixed(3)), null, 2)}</pre>
-                  <h4>Distances à la Solution Anti-Idéale (D-):</h4>
-                  <pre className="p-2 bg-background rounded">{JSON.stringify(calculationDetails.distanceToAntiIdeal.map(v => v.toFixed(3)), null, 2)}</pre>
+                  {renderMatrixAsTable(calculationDetails.initialMatrix, selectedMaterialNames, criteriaLabels, "Matrice Initiale", 2)}
+                  {renderMatrixAsTable(calculationDetails.normalizedMatrix, selectedMaterialNames, criteriaLabels, "Matrice Normalisée", 3)}
+                  {renderMatrixAsTable(calculationDetails.weightedMatrix, selectedMaterialNames, criteriaLabels, "Matrice Pondérée", 3)}
+                  {renderVectorAsTable(calculationDetails.idealSolution, criteriaLabels, "Solution Idéale", "Valeur", "Critère", 3)}
+                  {renderVectorAsTable(calculationDetails.antiIdealSolution, criteriaLabels, "Solution Anti-Idéale", "Valeur", "Critère", 3)}
+                  {renderVectorAsTable(calculationDetails.distanceToIdeal, selectedMaterialNames, "Distances à la Solution Idéale (D+)", "Distance (D+)", "Matériau", 3)}
+                  {renderVectorAsTable(calculationDetails.distanceToAntiIdeal, selectedMaterialNames, "Distances à la Solution Anti-Idéale (D-)", "Distance (D-)", "Matériau", 3)}
                 </div>
               </details>
             )}
