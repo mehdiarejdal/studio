@@ -36,7 +36,7 @@ export default function MaterialWisePage() {
   const [availableMaterials, setAvailableMaterials] = useState<Material[]>([]);
   const [selectedMaterialNames, setSelectedMaterialNames] = useState<string[]>([]);
   
-  const [selectableCriteria, setSelectableCriteria] = useState<Criterion[]>([]);
+  const [selectableCriteria, setSelectableCriteria] = useState<Criterion[]>(allCriteria);
   const [selectedCriteriaKeys, setSelectedCriteriaKeys] = useState<CriterionKey[]>([]);
   
   const [materialCosts, setMaterialCosts] = useState<Record<string, string>>({});
@@ -54,21 +54,20 @@ export default function MaterialWisePage() {
     if (networkMainType && selectedSubtype) {
       let filtered: Material[] = [];
       if (networkMainType === 'Evacuation') {
-        // For Evacuation, filter only by type 'EV'. PN is not used for filtering materials.
         filtered = materialsDb.filter(m => m.type.includes('EV'));
-        setSelectedPN(null); // Ensure PN is reset if switching to Evacuation
+        setSelectedPN(null); 
       } else if (networkMainType === 'Alimentation' && selectedPN !== null) { 
-        // For Alimentation, subtype and PN are required
-        const mappedType = selectedSubtype; // EF or ECS
+        const mappedType = selectedSubtype; 
         filtered = materialsDb.filter(m =>
           m.type.includes(mappedType as string) && m.pn.includes(selectedPN)
         );
       } else if (networkMainType === 'Alimentation' && selectedPN === null) {
-        // PN not yet selected for Alimentation, so no materials yet
         filtered = [];
       }
       setAvailableMaterials(filtered);
       setSelectedMaterialNames([]); 
+      setMaterialCosts({}); // Reset costs when available materials change
+      setCostSuggestions({}); // Reset suggestions
     } else {
       setAvailableMaterials([]);
     }
@@ -77,22 +76,19 @@ export default function MaterialWisePage() {
   useEffect(() => {
     let criteriaToUse = [...allCriteria];
     
-    // 'temp' criterion is only for 'ECS' subtype
-    if (selectedSubtype !== 'ECS') {
+    if (selectedSubtype !== 'ECS') { // Not ECS (i.e., EF or any Evacuation subtype)
       criteriaToUse = criteriaToUse.filter(c => c.key !== 'temp');
     }
   
-    // 'surpression' criterion is not for 'Evacuation' network type
     if (networkMainType === 'Evacuation') {
       criteriaToUse = criteriaToUse.filter(c => c.key !== 'surpression');
     }
     
     setSelectableCriteria(criteriaToUse);
-    // Reset selected criteria only if the available criteria list actually changes
-    // This prevents resetting selections if, for example, only PN changes but criteria remain the same
     const currentSelectedStillValid = selectedCriteriaKeys.every(key => criteriaToUse.some(c => c.key === key));
     if (!currentSelectedStillValid) {
         setSelectedCriteriaKeys([]);
+        setCriteriaWeights({}); // Reset weights if criteria change
     }
 
   }, [networkMainType, selectedSubtype, selectedCriteriaKeys]);
@@ -103,9 +99,13 @@ export default function MaterialWisePage() {
       toast({ title: "Erreur", description: "Veuillez choisir un type de réseau.", variant: "destructive" });
       return;
     }
-    if (currentStep === 2 && (!selectedSubtype || (networkMainType === 'Alimentation' && selectedPN === null))) {
-      toast({ title: "Erreur", description: "Veuillez sélectionner un sous-type et une pression nominale pour Alimentation, ou un sous-type pour Evacuation.", variant: "destructive" });
-      return;
+    if (currentStep === 2 && !selectedSubtype) {
+        toast({ title: "Erreur", description: "Veuillez sélectionner un sous-type de réseau.", variant: "destructive" });
+        return;
+    }
+    if (currentStep === 2 && networkMainType === 'Alimentation' && selectedPN === null) {
+        toast({ title: "Erreur", description: "Veuillez sélectionner une pression nominale (PN) pour le réseau d'Alimentation.", variant: "destructive" });
+        return;
     }
      if (currentStep === 2 && availableMaterials.length === 0 && (networkMainType === 'Alimentation' && selectedPN !== null || networkMainType === 'Evacuation')) {
        toast({ title: "Information", description: "Aucun matériau compatible trouvé pour les spécifications sélectionnées. Essayez d'autres options.", variant: "default" });
@@ -140,7 +140,7 @@ export default function MaterialWisePage() {
         toast({ title: "Erreur de Pondération", description: "Veuillez entrer des pondérations valides (entre 0 et 1) pour tous les critères sélectionnés.", variant: "destructive" });
         return;
       }
-      if (Math.abs(totalWeight - 1.0) > 0.001) { // Using a small tolerance for floating point comparison
+      if (Math.abs(totalWeight - 1.0) > 0.001 && selectedCriteriaKeys.length > 0) { 
          toast({ title: "Erreur de Pondération", description: `La somme des pondérations (${totalWeight.toFixed(3)}) doit être égale à 1.00.`, variant: "destructive" });
          return;
       }
@@ -152,13 +152,12 @@ export default function MaterialWisePage() {
       const results = runTopsisCalculation({
         selectedMaterialsData,
         selectedCriteriaKeys,
-        allCriteriaDefinition: selectableCriteria, // Use the dynamically filtered criteria
+        allCriteriaDefinition: selectableCriteria, 
         costs: costsParsed,
         weights: weightsParsed,
       });
       setTopsisResults(results);
       if (results.length > 0) {
-        // Assuming all results in the array share the same detailed matrices
         setCalculationDetails(results[0]); 
       } else {
         setCalculationDetails(null);
@@ -174,9 +173,9 @@ export default function MaterialWisePage() {
     setNetworkMainType(null);
     setSelectedSubtype(null);
     setSelectedPN(null);
-    setAvailableMaterials([]);
-    setSelectedMaterialNames([]);
-    setSelectableCriteria(allCriteria); // Reset to all default criteria
+    // setAvailableMaterials([]); // Will be reset by useEffect
+    // setSelectedMaterialNames([]); // Will be reset by useEffect
+    setSelectableCriteria(allCriteria); 
     setSelectedCriteriaKeys([]);
     setMaterialCosts({});
     setCriteriaWeights({});
@@ -205,18 +204,16 @@ export default function MaterialWisePage() {
 
   const handleSuggestCost = async (materialName: string) => {
     const material = availableMaterials.find(m => m.name === materialName);
-    // Cost suggestion requires PN. For 'Evacuation', PN is not selected by the user in step 2.
-    // Therefore, this button will be disabled if selectedPN is null.
     if (!material || selectedPN === null) { 
-      toast({ title: "Erreur", description: "Impossible de suggérer le coût. Pression Nominale (PN) requise.", variant: "destructive"});
+      toast({ title: "Erreur", description: "Impossible de suggérer le coût. Pression Nominale (PN) requise et doit être sélectionnée.", variant: "destructive"});
       return;
     }
 
     setIsSuggestingCost(prev => ({ ...prev, [materialName]: true }));
     try {
       const input: SuggestMaterialCostsInput = {
-        materialType: material.name, // Using material.name as it might be more specific than a general type
-        pressureRating: selectedPN, // selectedPN is guaranteed to be a number here by the check above
+        materialType: material.name, 
+        pressureRating: selectedPN, 
       };
       const suggestion: SuggestMaterialCostsOutput = await suggestMaterialCosts(input);
       setCostSuggestions(prev => ({...prev, [materialName]: suggestion.costRange}));
@@ -238,7 +235,7 @@ export default function MaterialWisePage() {
   ) => (
     <div className="my-4">
       <h4 className="font-semibold mb-2 text-sm">{caption}:</h4>
-      {matrix && matrix.length > 0 && matrix[0].length > 0 ? (
+      {matrix && matrix.length > 0 && matrix[0] && matrix[0].length > 0 && rowHeaders.length > 0 && colHeaders.length > 0 ? (
         <Table className="text-xs border">
           <TableHeader>
             <TableRow>
@@ -252,14 +249,14 @@ export default function MaterialWisePage() {
                 <TableCell className="font-medium border">{rowHeaders[rowIndex] || `Matériau ${rowIndex + 1}`}</TableCell>
                 {row.map((cell, cellIndex) => (
                   <TableCell key={`cell-${rowIndex}-${cellIndex}`} className="text-right border">
-                    {cell.toFixed(decimalPlaces)}
+                    {typeof cell === 'number' ? cell.toFixed(decimalPlaces) : 'N/A'}
                   </TableCell>
                 ))}
               </TableRow>
             ))}
           </TableBody>
         </Table>
-      ) : <p className="text-xs text-muted-foreground">Données non disponibles.</p>}
+      ) : <p className="text-xs text-muted-foreground">Données pour "{caption}" non disponibles ou incomplètes.</p>}
     </div>
   );
 
@@ -273,7 +270,7 @@ export default function MaterialWisePage() {
   ) => (
     <div className="my-4">
       <h4 className="font-semibold mb-2 text-sm">{caption}:</h4>
-      {vector && vector.length > 0 ? (
+      {vector && vector.length > 0 && rowHeaders.length > 0 ? (
         <Table className="text-xs border">
           <TableHeader>
             <TableRow>
@@ -285,12 +282,14 @@ export default function MaterialWisePage() {
             {vector.map((value, index) => (
               <TableRow key={rowHeaders[index] || `item-${index}`}>
                 <TableCell className="font-medium border">{rowHeaders[index] || `Item ${index + 1}`}</TableCell>
-                <TableCell className="text-right border">{value.toFixed(decimalPlaces)}</TableCell>
+                <TableCell className="text-right border">
+                  {typeof value === 'number' ? value.toFixed(decimalPlaces) : 'N/A'}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
-      ) : <p className="text-xs text-muted-foreground">Données non disponibles.</p>}
+      ) : <p className="text-xs text-muted-foreground">Données pour "{caption}" non disponibles ou incomplètes.</p>}
     </div>
   );
 
@@ -310,8 +309,8 @@ export default function MaterialWisePage() {
                     className="h-24 text-lg flex flex-col items-center justify-center space-y-2"
                     onClick={() => { 
                       setNetworkMainType(type); 
-                      setSelectedSubtype(null); // Reset subtype when main type changes
-                      setSelectedPN(null); // Reset PN when main type changes
+                      setSelectedSubtype(null); 
+                      setSelectedPN(null); 
                     }}
                   >
                     <Icon className="w-8 h-8 mb-1" />
@@ -362,7 +361,6 @@ export default function MaterialWisePage() {
                 </Select>
               </div>
             )}
-            {/* Show alert if no materials are found based on current selections */}
             {selectedSubtype && (networkMainType === 'Evacuation' || (networkMainType === 'Alimentation' && selectedPN !== null)) && availableMaterials.length === 0 && (
                  <Alert variant="default" className="bg-accent/20 border-accent">
                     <Info className="h-4 w-4 text-accent-foreground" />
@@ -393,7 +391,7 @@ export default function MaterialWisePage() {
                     <Checkbox
                       id={`mat-${material.name}`}
                       checked={selectedMaterialNames.includes(material.name)}
-                      onCheckedChange={() => handleMaterialSelection(material.name)} // Added to make checkbox clickable
+                      onCheckedChange={() => handleMaterialSelection(material.name)} 
                     />
                     <Label htmlFor={`mat-${material.name}`} className="font-medium cursor-pointer">{material.name}</Label>
                   </div>
@@ -421,7 +419,7 @@ export default function MaterialWisePage() {
                     <Checkbox
                       id={`crit-${criterion.key}`}
                       checked={selectedCriteriaKeys.includes(criterion.key as CriterionKey)}
-                      onCheckedChange={() => handleCriteriaSelection(criterion.key as CriterionKey)} // Added to make checkbox clickable
+                      onCheckedChange={() => handleCriteriaSelection(criterion.key as CriterionKey)} 
                     />
                     <Icon className="w-5 h-5 text-muted-foreground" />
                     <Label htmlFor={`crit-${criterion.key}`} className="font-medium cursor-pointer">{criterion.label}</Label>
@@ -456,9 +454,9 @@ export default function MaterialWisePage() {
                         variant="outline"
                         size="sm"
                         onClick={() => handleSuggestCost(name)}
-                        disabled={isSuggestingCost[name] || selectedPN === null} // Disabled if PN is not selected (e.g. for Evacuation)
+                        disabled={isSuggestingCost[name] || selectedPN === null || networkMainType === 'Evacuation'} 
                         aria-label={`Suggérer coût pour ${name}`}
-                        title={selectedPN === null ? "PN requis pour la suggestion de coût" : "Suggérer coût"}
+                        title={selectedPN === null || networkMainType === 'Evacuation' ? "PN requis et réseau Alimentation pour la suggestion de coût" : "Suggérer coût"}
                       >
                         {isSuggestingCost[name] ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4 text-accent" />}
                         <span className="ml-2 hidden sm:inline">Suggérer</span>
@@ -495,28 +493,56 @@ export default function MaterialWisePage() {
           </CardContent>
         );
       case 6:
-        if (!topsisResults || topsisResults.length === 0 || !calculationDetails) {
+        if (!topsisResults || !calculationDetails) { // Check both results and details
           return (
             <CardContent className="text-center py-10">
               <AlertCircle className="mx-auto h-12 w-12 text-destructive mb-4" />
               <p className="text-xl font-semibold">Aucun résultat à afficher.</p>
-              <p className="text-muted-foreground">Quelque chose s'est mal passé lors du calcul ou les données sont incomplètes.</p>
+              <p className="text-muted-foreground">Soit aucun matériau n'a été sélectionné, soit le calcul n'a pas pu être effectué. Veuillez vérifier vos sélections aux étapes précédentes.</p>
             </CardContent>
           );
         }
-        const bestMaterial = topsisResults[0];
-        const chartData = topsisResults.map(r => ({ name: r.name, score: parseFloat(r.score.toFixed(4)) })).sort((a,b) => b.score - a.score);
+        // Handle case where results might be empty even if calculationDetails exist (e.g. if only 1 material was processed with NaN)
+        if (topsisResults.length === 0) {
+             return (
+                <CardContent className="text-center py-10">
+                    <Info className="mx-auto h-12 w-12 text-blue-500 mb-4" />
+                    <p className="text-xl font-semibold">Résultats Indisponibles</p>
+                    <p className="text-muted-foreground">
+                        Les résultats ne peuvent pas être affichés. Cela peut se produire si un seul matériau est sélectionné, rendant la comparaison TOPSIS non applicable.
+                    </p>
+                </CardContent>
+            );
+        }
+
+        const bestMaterial = topsisResults.find(r => !isNaN(r.score)); // Find first non-NaN score for best material
+        
+        const chartData = topsisResults
+          .map(r => ({ name: r.name, score: isNaN(r.score) ? 0 : r.score })) // Map NaN scores to 0 for charting
+          .sort((a,b) => b.score - a.score);
+
         const criteriaLabels = selectedCriteriaKeys.map(key => selectableCriteria.find(c => c.key === key)?.label || key);
 
         return (
           <CardContent className="space-y-8 pt-6">
-            <Alert variant="default" className="bg-green-100 border-green-600 text-green-800 dark:bg-green-900/50 dark:border-green-500 dark:text-green-300">
-              <CheckCircle2 className="h-5 w-5" />
-              <AlertTitle className="font-bold">Matériau Recommandé: {bestMaterial.name}</AlertTitle>
-              <AlertDescription>
-                Score TOPSIS: <strong>{bestMaterial.score.toFixed(4)}</strong>. Ce matériau offre le meilleur compromis selon les critères et pondérations choisis.
-              </AlertDescription>
-            </Alert>
+            {bestMaterial ? (
+              <Alert variant="default" className="bg-green-100 border-green-600 text-green-800 dark:bg-green-900/50 dark:border-green-500 dark:text-green-300">
+                <CheckCircle2 className="h-5 w-5" />
+                <AlertTitle className="font-bold">Matériau Recommandé: {bestMaterial.name}</AlertTitle>
+                <AlertDescription>
+                  Score TOPSIS: <strong>{isNaN(bestMaterial.score) ? "N/A" : bestMaterial.score.toFixed(4)}</strong>. Ce matériau offre le meilleur compromis selon les critères et pondérations choisis.
+                </AlertDescription>
+              </Alert>
+            ) : (
+                 <Alert variant="default" className="bg-blue-100 border-blue-500 text-blue-700">
+                    <Info className="h-5 w-5" />
+                    <AlertTitle className="font-bold">Recommandation Indéterminée</AlertTitle>
+                    <AlertDescription>
+                        Aucun matériau ne peut être recommandé. Cela peut se produire si un seul matériau est évalué, ou si tous les scores sont invalides.
+                    </AlertDescription>
+                </Alert>
+            )}
+
 
             <div className="space-y-4">
               <h3 className="text-xl font-semibold text-center">Visualisation des Scores</h3>
@@ -525,11 +551,14 @@ export default function MaterialWisePage() {
                   <BarChart data={chartData} margin={{ top: 5, right: 20, left: -20, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted/50" />
                     <XAxis dataKey="name" className="text-xs" />
-                    <YAxis className="text-xs" />
+                    <YAxis className="text-xs" domain={[0, 1]}/>
                     <RechartsTooltip
                       contentStyle={{ backgroundColor: 'hsl(var(--background))', border: '1px solid hsl(var(--border))', borderRadius: 'var(--radius)'}}
                       labelStyle={{ color: 'hsl(var(--foreground))', fontWeight: 'bold' }}
-                      itemStyle={{ color: 'hsl(var(--primary))' }}
+                      formatter={(value: number, name: string, props: any) => {
+                        const originalScore = topsisResults.find(r => r.name === props.payload.name)?.score;
+                        return [isNaN(originalScore as number) ? "N/A" : (originalScore as number).toFixed(4), "Score"];
+                      }}
                     />
                     <RechartsLegend wrapperStyle={{fontSize: "0.8rem"}} />
                     <Bar dataKey="score" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} barSize={40} />
@@ -550,10 +579,10 @@ export default function MaterialWisePage() {
                 </TableHeader>
                 <TableBody>
                   {topsisResults.map((result, index) => (
-                    <TableRow key={result.name} className={index === 0 ? "bg-primary/10" : ""}>
+                    <TableRow key={result.name} className={index === 0 && !isNaN(result.score) ? "bg-primary/10" : ""}>
                       <TableCell className="font-medium">{index + 1}</TableCell>
                       <TableCell>{result.name}</TableCell>
-                      <TableCell className="text-right">{result.score.toFixed(4)}</TableCell>
+                      <TableCell className="text-right">{isNaN(result.score) ? "N/A" : result.score.toFixed(4)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -579,14 +608,19 @@ export default function MaterialWisePage() {
                         <TableHeader>
                             <TableRow>
                                 <TableHead className="border">Critère</TableHead>
+                                <TableHead className="border text-right">Type</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                        {selectedCriteriaKeys.map(key => (
-                            <TableRow key={key}>
-                                <TableCell className="font-medium border">{selectableCriteria.find(c => c.key === key)?.label || key}</TableCell>
-                            </TableRow>
-                        ))}
+                        {selectedCriteriaKeys.map(key => {
+                            const critDef = selectableCriteria.find(c => c.key === key);
+                            return (
+                                <TableRow key={key}>
+                                    <TableCell className="font-medium border">{critDef?.label || key}</TableCell>
+                                    <TableCell className="font-medium border text-right">{critDef?.isBenefit ? "Bénéfice (↑)" : "Coût (↓)"}</TableCell>
+                                </TableRow>
+                            );
+                        })}
                         </TableBody>
                       </Table>
                     ) : <p className="text-xs text-muted-foreground">Aucun critère sélectionné.</p>}
@@ -634,11 +668,11 @@ export default function MaterialWisePage() {
         {renderStepContent()}
 
         <CardFooter className="flex justify-between pt-6 border-t">
-          {currentStep > 1 && (
-            <Button variant="outline" onClick={handlePrevStep}>
+          {currentStep > 1 ? ( // Show "Précédent" only if not on the first step
+            <Button variant="outline" onClick={handlePrevStep} disabled={currentStep === 1}>
               <ChevronLeft className="mr-2 h-4 w-4" /> Précédent
             </Button>
-          )}
+          ) : <div></div> /* Placeholder to keep spacing */ }
           {currentStep < 6 ? (
             <Button onClick={handleNextStep} className="ml-auto">
               Suivant <ChevronRight className="ml-2 h-4 w-4" />
@@ -656,3 +690,4 @@ export default function MaterialWisePage() {
     </main>
   );
 }
+

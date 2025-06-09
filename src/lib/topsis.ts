@@ -1,3 +1,4 @@
+
 import type { Material, Criterion, CriterionKey } from './materials';
 
 interface TopsisInput {
@@ -21,7 +22,7 @@ export interface TopsisFullResults extends TopsisResult {
 
 export interface TopsisResult {
   name: string;
-  score: number;
+  score: number; // Can be NaN
   originalData: Material;
   calculatedValues: Record<CriterionKey, number>;
 }
@@ -122,7 +123,7 @@ export function runTopsisCalculation({
   const scores: number[] = Array(numRows).fill(0);
   for (let i = 0; i < numRows; i++) {
     const denominator = distanceToIdeal[i] + distanceToAntiIdeal[i];
-    scores[i] = denominator === 0 ? 0 : distanceToAntiIdeal[i] / denominator; // Avoid division by zero
+    scores[i] = denominator === 0 ? NaN : distanceToAntiIdeal[i] / denominator; // Return NaN if denominator is 0
   }
 
   // 7. Rank the preferences
@@ -136,17 +137,21 @@ export function runTopsisCalculation({
       score: scores[index],
       originalData: material,
       calculatedValues,
-      initialMatrix: initialMatrix.map(row => [...row]), // Deep copy
-      normalizedMatrix: normalizedMatrix.map(row => [...row]), // Deep copy
-      weightedMatrix: weightedMatrix.map(row => [...row]), // Deep copy
-      idealSolution: [...idealSolution], // Deep copy
-      antiIdealSolution: [...antiIdealSolution], // Deep copy
-      distanceToIdeal: [...distanceToIdeal], // Deep copy
-      distanceToAntiIdeal: [...distanceToAntiIdeal], // Deep copy
+      initialMatrix: initialMatrix.map(row => [...row]), 
+      normalizedMatrix: normalizedMatrix.map(row => [...row]), 
+      weightedMatrix: weightedMatrix.map(row => [...row]), 
+      idealSolution: [...idealSolution], 
+      antiIdealSolution: [...antiIdealSolution], 
+      distanceToIdeal: [...distanceToIdeal], 
+      distanceToAntiIdeal: [...distanceToAntiIdeal], 
     };
   });
   
-  results.sort((a, b) => b.score - a.score);
+  results.sort((a, b) => {
+    const scoreA = isNaN(a.score) ? -Infinity : a.score; // Treat NaN as lowest score for sorting
+    const scoreB = isNaN(b.score) ? -Infinity : b.score;
+    return scoreB - scoreA;
+  });
 
   return results;
 }
